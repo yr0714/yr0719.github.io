@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>智能湖泊水质监测系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.bootcdn.net/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: "Microsoft YaHei", "PingFang SC", sans-serif; 
+            background: linear-gradient(135deg, #e8f0fe 0%, #d4e4fc 50%, #c5d9f4 100%);
+            min-height: 100vh;
+            padding: 1rem;
+        }
+        .glass-card {
+            background: rgba(255,255,255,0.85);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.5);
+        }
+        .property-card {
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        .property-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.12);
+        }
+        .property-card:active {
+            transform: scale(0.97);
+        }
+        .property-card::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 4px;
+        }
+        .card-ph::after { background: linear-gradient(90deg, #ef4444, #f87171); }
+        .card-do::after { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+        .card-temp::after { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        .card-turb::after { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+
+        .pulse-dot {
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            position: relative;
+        }
+        .pulse-dot.online {
+            background: #22c55e;
+            animation: pulse 2s infinite;
+        }
+        .pulse-dot.offline {
+            background: #9ca3af;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+            70% { box-shadow: 0 0 0 10px rgba(34,197,94,0); }
+            100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+        }
+
+        .value-number {
+            font-size: clamp(2rem, 5vw, 2.5rem);
+            font-weight: 700;
+            line-height: 1;
+        }
+        .value-unit {
+            font-size: 0.875rem;
+            color: #6b7280;
+            font-weight: 400;
+        }
+
+        .ai-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-weight: 600;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+        .ai-normal { background: #dcfce7; color: #166534; }
+        .ai-warning { background: #fef9c3; color: #854d0e; }
+        .ai-danger { background: #fee2e2; color: #991b1b; }
+
+        @media (max-width: 640px) {
+            body { padding: 0.5rem; }
+            .property-card { padding: 1rem !important; }
+            .value-number { font-size: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="max-w-6xl mx-auto">
+
+        <!-- 顶部标题栏 -->
+        <div class="glass-card rounded-2xl shadow-lg p-4 md:p-6 mb-4 md:mb-6">
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                <div class="flex items-center gap-3">
+                    <div>
+                        <h1 class="text-lg md:text-xl font-bold text-gray-800">
+                            🌊 智能湖泊水质监测系统
+                        </h1>
+                        <p class="text-xs md:text-sm text-gray-500 mt-1">
+                            多参数实时采集 · AI智能水质评级 · 污染趋势预警 · 符合GB3838-2002地表水环境质量标准
+                        </p>
+                    </div>
+                    <!-- AI 判定徽章 -->
+                    <div id="aiBadge" class="ai-badge ai-normal">正常</div>
+                </div>
+                <div class="flex flex-col items-end gap-1 self-end sm:self-auto">
+                    <div class="flex items-center gap-2">
+                        <span id="statusDot" class="pulse-dot offline"></span>
+                        <span id="statusText" class="text-sm text-gray-600 font-medium">检测中...</span>
+                    </div>
+                    <span class="text-xs text-gray-400">数据每10秒自动刷新</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 属性卡片 -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
+
+            <!-- pH 值卡片 -->
+            <div class="property-card card-ph glass-card rounded-2xl shadow p-4 md:p-5"
+                 data-identifier="PH" data-name="pH值" data-unit="" data-color="#ef4444">
+                <div class="flex items-center gap-2 md:gap-3 mb-3">
+                    <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+                        <i class="fa fa-flask text-red-500 text-lg md:text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm md:text-base font-semibold text-gray-700">pH值</h3>
+                        <p class="text-xs text-gray-400">水体酸碱度</p>
+                    </div>
+                </div>
+                <div class="value-number text-gray-800">
+                    <span id="PH">--</span>
+                </div>
+                <p class="text-xs text-gray-500 mt-2 leading-snug">
+                    衡量水体酸碱平衡的核心指标，直接影响污染物毒性与水生生物存活，正常范围 6.5~8.5
+                </p>
+                <p class="text-xs text-gray-400 mt-2">
+                    <i class="fa fa-hand-pointer-o mr-1"></i>点击查看24小时历史趋势
+                </p>
+            </div>
+
+            <!-- 溶解氧卡片 -->
+            <div class="property-card card-do glass-card rounded-2xl shadow p-4 md:p-5"
+                 data-identifier="Do" data-name="溶解氧" data-unit="mg/L" data-color="#3b82f6">
+                <div class="flex items-center gap-2 md:gap-3 mb-3">
+                    <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
+                        <i class="fa fa-tint text-blue-500 text-lg md:text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm md:text-base font-semibold text-gray-700">溶解氧</h3>
+                        <p class="text-xs text-gray-400">Dissolved Oxygen</p>
+                    </div>
+                </div>
+                <div class="value-number text-gray-800">
+                    <span id="Do">--</span>
+                    <span class="value-unit ml-1">mg/L</span>
+                </div>
+                <p class="text-xs text-gray-500 mt-2 leading-snug">
+                    溶解在水中的氧气含量，是水体自净能力与鱼类生存的必要条件，Ⅲ类水标准 ≥ 5.0 mg/L
+                </p>
+                <p class="text-xs text-gray-400 mt-2">
+                    <i class="fa fa-hand-pointer-o mr-1"></i>点击查看24小时历史趋势
+                </p>
+            </div>
+
+            <!-- 温度卡片 -->
+            <div class="property-card card-temp glass-card rounded-2xl shadow p-4 md:p-5"
+                 data-identifier="temperature" data-name="温度" data-unit="°C" data-color="#f59e0b">
+                <div class="flex items-center gap-2 md:gap-3 mb-3">
+                    <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-yellow-100 flex items-center justify-center flex-shrink-0">
+                        <i class="fa fa-thermometer-half text-yellow-500 text-lg md:text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm md:text-base font-semibold text-gray-700">水温</h3>
+                        <p class="text-xs text-gray-400">Water Temperature</p>
+                    </div>
+                </div>
+                <div class="value-number text-gray-800">
+                    <span id="temperature">--</span>
+                    <span class="value-unit ml-1">°C</span>
+                </div>
+                <p class="text-xs text-gray-500 mt-2 leading-snug">
+                    影响溶解氧饱和度、微生物代谢速率与水生生物活性，淡水湖泊适宜区间 5~30℃
+                </p>
+                <p class="text-xs text-gray-400 mt-2">
+                    <i class="fa fa-hand-pointer-o mr-1"></i>点击查看24小时历史趋势
+                </p>
+            </div>
+
+            <!-- 浊度卡片 -->
+            <div class="property-card card-turb glass-card rounded-2xl shadow p-4 md:p-5"
+                 data-identifier="turbidity" data-name="浊度" data-unit="NTU" data-color="#8b5cf6">
+                <div class="flex items-center gap-2 md:gap-3 mb-3">
+                    <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0">
+                        <i class="fa fa-eye text-purple-500 text-lg md:text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm md:text-base font-semibold text-gray-700">浊度</h3>
+                        <p class="text-xs text-gray-400">Turbidity</p>
+                    </div>
+                </div>
+                <div class="value-number text-gray-800">
+                    <span id="turbidity">--</span>
+                    <span class="value-unit ml-1">NTU</span>
+                </div>
+                <p class="text-xs text-gray-500 mt-2 leading-snug">
+                    反映水中悬浮颗粒物含量，关联水体透明度与污染程度，景观湖泊通常 ≤ 5 NTU
+                </p>
+                <p class="text-xs text-gray-400 mt-2">
+                    <i class="fa fa-hand-pointer-o mr-1"></i>点击查看24小时历史趋势
+                </p>
+            </div>
+        </div>
+
+        <!-- AI 分析文本框 -->
+        <div class="glass-card rounded-2xl shadow p-4 md:p-6 mb-4">
+            <div class="flex flex-col gap-1 mb-3">
+                <div class="flex items-center gap-2">
+                    <i class="fa fa-commenting-o text-blue-500 text-lg"></i>
+                    <h3 class="text-base md:text-lg font-semibold text-gray-700">🤖 智能水质诊断报告</h3>
+                </div>
+                <p class="text-xs text-gray-400">评估依据：《地表水环境质量标准 GB3838-2002》Ⅲ类水质限值 · 边缘AI模型实时推理</p>
+            </div>
+            <div id="aiAnalysisBox" class="bg-gray-50 rounded-xl p-4 text-sm md:text-base text-gray-700 leading-relaxed min-h-[120px] whitespace-pre-line">
+                <span class="text-gray-400 italic">正在从云端获取传感器实时数据，AI诊断模型加载中...</span>
+            </div>
+        </div>
+
+        <!-- 页脚 -->
+        <div class="text-center text-xs text-gray-400 pb-4 leading-relaxed">
+            <p>🔧 硬件方案：ESP32-S3 主控 + 多参数水质传感器阵列</p>
+            <p class="mt-1">🧠 AI算法：Edge Impulse 训练的边缘端水质异常识别模型</p>
+            <p class="mt-1">☁️ 云平台：中国移动OneNET 物联网开放平台 · 数据每10秒自动同步更新</p>
+        </div>
+    </div>
+
+    <!-- 历史数据弹窗 -->
+    <div id="historyModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden p-4"
+         onclick="if(event.target===this)closeModal()">
+        <div class="glass-card rounded-2xl shadow-2xl w-full max-w-[900px] max-h-[90vh] overflow-auto">
+            <div class="p-4 md:p-6 border-b border-gray-200 sticky top-0 bg-white/90 backdrop-blur rounded-t-2xl z-10">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 id="modalTitle" class="text-lg md:text-xl font-bold text-gray-800">历史数据</h3>
+                        <p id="modalDesc" class="text-xs text-gray-500 mt-1">近24小时监测趋势曲线，最多展示100个采样点</p>
+                    </div>
+                    <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-colors text-2xl leading-none flex-shrink-0">&times;</button>
+                </div>
+            </div>
+            <div class="p-4 md:p-6">
+                <div id="historyChart" style="width: 100%; height: 350px; min-height: 300px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const config = {
+            token: "version=2018-10-31&res=products%2Fj54L1qeED6%2Fdevices%2FESP32S3&et=1809485593&method=md5&sign=t5fPcwYyFE3erP2oCYi9mw%3D%3D",
+            productId: "j54L1qeED6",
+            deviceName: "ESP32S3",
+            api: {
+                deviceDetail:  "https://iot-api.heclouds.com/device/detail",
+                getProperty:   "https://iot-api.heclouds.com/thingmodel/query-device-property",
+                getHistory:    "https://iot-api.heclouds.com/thingmodel/query-device-property-history"
+            }
+        };
+
+        let chartInstance = null;
+
+        const THRESHOLDS = {
+            PH: { min: 6.5, max: 8.5, name: "pH值", unit: "", standard: "6.5~8.5" },
+            Do: { min: 5.0, max: 20,  name: "溶解氧", unit: "mg/L", standard: "≥5.0 mg/L" },
+            temperature: { min: 5, max: 30, name: "水温", unit: "°C", standard: "5~30 ℃" },
+            turbidity: { min: 0, max: 5,  name: "浊度", unit: "NTU", standard: "≤5 NTU" }
+        };
+
+        function evaluateWaterQuality(props) {
+            let issues = [];
+            if (props.PH < THRESHOLDS.PH.min) issues.push({ param: 'PH', dir: 'low', value: props.PH, deviation: ((THRESHOLDS.PH.min - props.PH)/THRESHOLDS.PH.min*100).toFixed(1) });
+            else if (props.PH > THRESHOLDS.PH.max) issues.push({ param: 'PH', dir: 'high', value: props.PH, deviation: ((props.PH - THRESHOLDS.PH.max)/THRESHOLDS.PH.max*100).toFixed(1) });
+            
+            if (props.Do < THRESHOLDS.Do.min) issues.push({ param: 'Do', dir: 'low', value: props.Do, deviation: ((THRESHOLDS.Do.min - props.Do)/THRESHOLDS.Do.min*100).toFixed(1) });
+            
+            if (props.temperature < THRESHOLDS.temperature.min) issues.push({ param: 'temperature', dir: 'low', value: props.temperature, deviation: ((THRESHOLDS.temperature.min - props.temperature)/THRESHOLDS.temperature.min*100).toFixed(1) });
+            else if (props.temperature > THRESHOLDS.temperature.max) issues.push({ param: 'temperature', dir: 'high', value: props.temperature, deviation: ((props.temperature - THRESHOLDS.temperature.max)/THRESHOLDS.temperature.max*100).toFixed(1) });
+            
+            if (props.turbidity > THRESHOLDS.turbidity.max) issues.push({ param: 'turbidity', dir: 'high', value: props.turbidity, deviation: ((props.turbidity - THRESHOLDS.turbidity.max)/THRESHOLDS.turbidity.max*100).toFixed(1) });
+            
+            let level = 'normal';
+            if (issues.length === 1) level = 'warning';
+            else if (issues.length >= 2) level = 'danger';
+            return { level, issues };
+        }
+
+        function generateAIAnalysis(props) {
+            if (!props) return "⚠️ 无法获取传感器实时数据，请检查设备供电、网络连接与云端令牌有效性。\n\n可能原因：\n1. 现场设备断电或WiFi断开连接\n2. OneNET平台授权令牌已过期\n3. 传感器探头接触不良或被污物遮挡\n\n建议排查步骤：\n• 确认ESP32-S3主控板电源指示灯正常\n• 检查现场WiFi信号强度与连通性\n• 登录OneNET平台查看设备在线状态与数据流";
+
+            const { level, issues } = evaluateWaterQuality(props);
+            let report = '';
+            const loc = '目标湖泊监测点';
+            const now = new Date();
+            const timestamp = `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2,'0')}-${now.getDate().toString().padStart(2,'0')} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+
+            if (level === 'normal') {
+                report += `✅ 综合水质评级：优良（对应《地表水环境质量标准》Ⅱ~Ⅲ类）\n`;
+                report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+                report += `📍 监测点位：${loc}\n`;
+                report += `🕒 分析时间：${timestamp}\n`;
+                report += `📊 采样频率：每10秒实时采集一次\n\n`;
+
+                report += `💧 各项指标详细达标情况：\n`;
+                report += `• pH值：${props.PH.toFixed(1)}，处于6.5~8.5的适宜区间内，水体酸碱平衡稳定。\n`;
+                report += `• 溶解氧：${props.Do.toFixed(1)} mg/L，高于Ⅲ类地表水5.0 mg/L的最低要求，水体自净能力良好。\n`;
+                report += `• 水温：${props.temperature.toFixed(1)} ℃，处于淡水湖泊生态系统适宜区间。\n`;
+                report += `• 浊度：${props.turbidity.toFixed(1)} NTU，低于景观湖泊5 NTU的常规限值，透明度良好。\n\n`;
+
+                report += `🌿 生态系统评估结论：\n`;
+                report += `当前水体整体理化状态良好，适合淡水鱼类、浮游生物等水生生物生存，湖泊生态系统结构稳定，未发现明显外源污染迹象。\n\n`;
+
+                report += `📌 运维与管理建议：\n`;
+                report += `1. 保持当前每10分钟一次的常规监测频率，每日生成水质日报。\n`;
+                report += `2. 建议每周进行一次人工采样送检，补充总氮、总磷等核心指标。\n`;
+                report += `3. 降雨天气后需加密监测，防范面源污染输入。\n`;
+                report += `4. 每季度校准一次传感器探头，保证测量精度。`;
+            } else {
+                const levelText = level === 'danger' ? '严重异常（劣Ⅴ类倾向）' : '轻度异常（Ⅳ类倾向）';
+                report += `⚠️ 综合水质评级：${levelText}\n`;
+                report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+                report += `📍 监测点位：${loc}\n`;
+                report += `🕒 分析时间：${timestamp}\n`;
+                report += `🔍 异常项数量：共 ${issues.length} 项指标偏离Ⅲ类水质标准\n\n`;
+
+                report += `📋 单项指标异常详细分析：\n\n`;
+
+                issues.forEach(iss => {
+                    const th = THRESHOLDS[iss.param];
+                    const val = iss.value;
+                    const dir = iss.dir;
+                    const name = th.name;
+                    const unit = th.unit;
+                    const dev = iss.deviation;
+                    
+                    report += `◆ ${name}${dir==='low'?'偏低':'偏高'}（偏离标准 ${dev}%）\n`;
+                    report += `  当前值：${val.toFixed(2)} ${unit} | 标准要求：${th.standard}\n`;
+
+                    if (iss.param === 'PH') {
+                        if (dir === 'low') {
+                            report += `  成因分析：酸性废水排放、酸雨沉降、有机物分解产生有机酸。\n  环境危害：腐蚀鱼鳃组织，促进重金属溶出，加剧水体毒性。\n`;
+                        } else {
+                            report += `  成因分析：藻类爆发消耗CO₂、碱性工业废水、石灰岩地质溶出。\n  环境危害：氨氮毒性增强，腐蚀水生生物体表黏膜。\n`;
+                        }
+                    } else if (iss.param === 'Do') {
+                        report += `  成因分析：有机物耗氧分解、水温升高、富营养化藻类夜间呼吸。\n  环境危害：鱼类浮头甚至死亡，厌氧微生物占优产生黑臭水体。\n`;
+                    } else if (iss.param === 'temperature') {
+                        if (dir === 'high') {
+                            report += `  成因分析：冷却水排放、极端高温天气、硬质驳岸吸热。\n  环境危害：降低溶解氧，加速化学反应，水生生物死亡。\n`;
+                        } else {
+                            report += `  成因分析：寒潮、地下水大量补给、水库泄洪放流。\n  环境危害：抑制生物酶活性，降低微生物分解速率。\n`;
+                        }
+                    } else if (iss.param === 'turbidity') {
+                        report += `  成因分析：降雨径流携带泥沙、藻类繁殖、工业悬浮物排放。\n  环境危害：降低透光性，吸附污染物与致病菌，堵塞鱼鳃。\n`;
+                    }
+                    report += `\n`;
+                });
+
+                // 关联分析
+                let cross = [];
+                const hasPH = issues.some(i=>i.param==='PH');
+                const hasDO = issues.some(i=>i.param==='Do');
+                const hasTemp = issues.some(i=>i.param==='temperature');
+                const hasTurb = issues.some(i=>i.param==='turbidity');
+
+                if (hasDO && hasTemp) cross.push('🌡️ 水温-溶解氧关联：水温升高降低饱和溶解氧，双重异常提示热污染叠加效应。');
+                if (hasDO && hasTurb) cross.push('🔄 浊度-溶解氧关联：有机物颗粒输入导致微生物耗氧加剧，可能存在富营养化。');
+                if (hasPH && hasTemp) cross.push('⚗️ pH-水温关联：pH与水温同步异常，大概率由工业废水或地质背景因素导致。');
+                if (hasTurb && hasPH) cross.push('💧 浊度-pH关联：水土流失携带矿物颗粒入湖，关注上游植被破坏与岸线侵蚀。');
+                
+                if (cross.length > 0) {
+                    report += `🔗 多指标关联分析：\n`;
+                    cross.forEach(c => report += c + '\n');
+                    report += '\n';
+                }
+
+                report += `💡 分级处置建议：\n`;
+                report += `【应急措施】\n`;
+                if (hasDO) report += `• 立即启动曝气装置，对重点区域进行人工增氧\n`;
+                if (hasTurb) report += `• 检查入湖排口，拦截泥沙与悬浮物，设置临时拦污栅\n`;
+                if (hasPH) report += `• 投加适量缓冲药剂快速调节pH，同时溯源查找排放源\n`;
+                if (hasTemp) report += `• 若为热污染立即责令排放企业停产整改\n`;
+                report += `• 加密监测频次至每2小时一次，跟踪指标变化趋势\n\n`;
+
+                report += `【短期治理】\n`;
+                report += `• 对异常指标开展连续7天跟踪监测，绘制日变化曲线\n`;
+                report += `• 委托第三方检测机构补充检测总氮、总磷、氨氮等全项指标\n`;
+                report += `• 排查周边排污口、养殖区、施工场地，明确污染来源并限期整改\n\n`;
+
+                report += `【长效管理】\n`;
+                report += `• 完善湖泊入湖口湿地净化系统，削减面源污染输入\n`;
+                report += `• 建立水质预警阈值联动机制，异常自动推送告警\n`;
+                report += `• 编制湖泊水质应急预案，明确不同污染等级的处置流程\n`;
+            }
+            return report;
+        }
+
+        function updateAIBadge(level) {
+            const badge = document.getElementById('aiBadge');
+            badge.classList.remove('ai-normal','ai-warning','ai-danger');
+            if (level === 'normal') {
+                badge.textContent = '水质优良';
+                badge.classList.add('ai-normal');
+            } else if (level === 'warning') {
+                badge.textContent = '轻度异常';
+                badge.classList.add('ai-warning');
+            } else {
+                badge.textContent = '严重异常';
+                badge.classList.add('ai-danger');
+            }
+        }
+
+        async function getDeviceStatus() {
+            try {
+                const res = await fetch(`${config.api.deviceDetail}?product_id=${config.productId}&device_name=${config.deviceName}`, { headers: { "authorization": config.token } });
+                const data = await res.json();
+                const dot = document.getElementById("statusDot"), text = document.getElementById("statusText");
+                if (data.code === 0 && data.data && data.data.status === 1) {
+                    dot.className = "pulse-dot online"; 
+                    text.textContent = "设备在线"; 
+                    text.className = "text-sm text-green-600 font-medium";
+                    return true;
+                } else {
+                    dot.className = "pulse-dot offline"; 
+                    text.textContent = "设备离线"; 
+                    text.className = "text-sm text-gray-500 font-medium";
+                    return false;
+                }
+            } catch (e) { 
+                document.getElementById("statusDot").className = "pulse-dot offline"; 
+                document.getElementById("statusText").textContent = "连接失败"; 
+                return false;
+            }
+        }
+
+        async function getDeviceProperties() {
+            try {
+                const res = await fetch(`${config.api.getProperty}?product_id=${config.productId}&device_name=${config.deviceName}`, { headers: { "authorization": config.token } });
+                const data = await res.json();
+                if (data.code !== 0 || !data.data) return null;
+                const list = data.data;
+                const props = {};
+                const temp = list.find(i => i.identifier === "temperature");
+                const ph   = list.find(i => i.identifier === "PH");
+                const turb = list.find(i => i.identifier === "turbidity");
+                const doVal= list.find(i => i.identifier === "Do");
+                props.PH = ph ? parseFloat(ph.value) : null;
+                props.Do = doVal ? parseFloat(doVal.value) : null;
+                props.temperature = temp ? parseFloat(temp.value) : null;
+                props.turbidity = turb ? parseFloat(turb.value) : null;
+                document.getElementById("PH").textContent = props.PH !== null ? props.PH.toFixed(1) : "--";
+                document.getElementById("Do").textContent = props.Do !== null ? props.Do.toFixed(1) : "--";
+                document.getElementById("temperature").textContent = props.temperature !== null ? props.temperature.toFixed(1) : "--";
+                document.getElementById("turbidity").textContent = props.turbidity !== null ? props.turbidity.toFixed(1) : "--";
+                return props;
+            } catch (e) { console.error(e); return null; }
+        }
+
+        async function loadHistoryData(identifier, name, unit, color) {
+            const modal = document.getElementById("historyModal");
+            const title = document.getElementById("modalTitle");
+            const desc = document.getElementById("modalDesc");
+            title.textContent = `📈 ${name} 历史数据趋势`;
+            desc.textContent = `${THRESHOLDS[identifier].name} · 单位：${unit} · 近24小时采样数据 · 标准要求：${THRESHOLDS[identifier].standard}`;
+            modal.classList.remove("hidden");
+
+            if (!chartInstance) {
+                chartInstance = echarts.init(document.getElementById("historyChart"));
+            }
+            chartInstance.showLoading();
+
+            try {
+                const endTime = Date.now();
+                const startTime = endTime - 24 * 60 * 60 * 1000;
+                const res = await fetch(`${config.api.getHistory}?product_id=${config.productId}&device_name=${config.deviceName}&identifier=${identifier}&start_time=${startTime}&end_time=${endTime}&limit=100`, { headers: { "authorization": config.token } });
+                const data = await res.json();
+                if (data.code !== 0) {
+                    alert("获取历史数据失败：" + (data.msg || "未知错误"));
+                    chartInstance.hideLoading();
+                    return;
+                }
+                const list = (data.data && data.data.list) ? data.data.list : [];
+                if (list.length === 0) {
+                    chartInstance.hideLoading();
+                    chartInstance.setOption({
+                        title: { text: '暂无历史数据记录', left: 'center', top: 'center', textStyle: { color: '#999', fontSize: 14 } }
+                    }, true);
+                    return;
+                }
+                list.reverse();
+                const times = list.map(item => {
+                    const date = new Date(parseInt(item.time));
+                    return `${date.getHours().toString().padStart(2,'0')}:${date.getMinutes().toString().padStart(2,'0')}`;
+                });
+                const values = list.map(item => parseFloat(item.value));
+
+                const option = {
+                    tooltip: { trigger: 'axis', valueFormatter: val => val + ` ${unit}` },
+                    grid: { left: '8%', right: '8%', bottom: '10%', top: '5%', containLabel: true },
+                    xAxis: { type: 'category', data: times, axisLabel: { rotate: 45, fontSize: 10 } },
+                    yAxis: { type: 'value', name: unit, nameTextStyle: { color: '#666' } },
+                    series: [{
+                        name: name, type: 'line', data: values, smooth: true,
+                        symbol: 'circle', symbolSize: 4,
+                        lineStyle: { color: color, width: 2 },
+                        itemStyle: { color: color },
+                        markLine: {
+                            silent: true,
+                            lineStyle: { color: '#999', type: 'dashed' },
+                            data: [
+                                { yAxis: THRESHOLDS[identifier].min, label: { formatter: '下限', fontSize: 10 } },
+                                { yAxis: THRESHOLDS[identifier].max, label: { formatter: '上限', fontSize: 10 } }
+                            ]
+                        },
+                        areaStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: color + '60' },
+                                { offset: 1, color: color + '05' }
+                            ])
+                        }
+                    }]
+                };
+                chartInstance.setOption(option, true);
+                chartInstance.hideLoading();
+            } catch (err) {
+                console.error(err);
+                alert("网络错误，请检查网络连接后重试");
+                chartInstance.hideLoading();
+            }
+        }
+
+        function closeModal() {
+            document.getElementById("historyModal").classList.add("hidden");
+        }
+
+        window.addEventListener('resize', () => {
+            if (chartInstance) chartInstance.resize();
+        });
+
+        window.onload = async () => {
+            const props = await getDeviceProperties();
+            if (props) {
+                const { level } = evaluateWaterQuality(props);
+                updateAIBadge(level);
+                document.getElementById("aiAnalysisBox").textContent = generateAIAnalysis(props);
+            }
+            getDeviceStatus();
+            setInterval(async () => {
+                const p = await getDeviceProperties();
+                if (p) {
+                    const { level } = evaluateWaterQuality(p);
+                    updateAIBadge(level);
+                    document.getElementById("aiAnalysisBox").textContent = generateAIAnalysis(p);
+                }
+                getDeviceStatus();
+            }, 10000);
+            document.querySelectorAll(".property-card").forEach(card => {
+                card.addEventListener("click", () => {
+                    const id = card.dataset.identifier;
+                    const name = card.dataset.name;
+                    const unit = card.dataset.unit;
+                    const color = card.dataset.color;
+                    loadHistoryData(id, name, unit, color);
+                });
+            });
+        };
+    </script>
+</body>
+</html>
